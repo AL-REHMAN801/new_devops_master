@@ -26,10 +26,12 @@ jobs:
         uses: actions/setup-node@v4
         with:
           node-version: '18'
+          cache: 'npm'
+          cache-dependency-path: phase2-cicd/sample-app/package.json
 
       - name: Install dependencies
         working-directory: phase2-cicd/sample-app
-        run: npm install
+        run: npm install --prefer-offline --no-audit
 
       - name: Run ESLint
         working-directory: phase2-cicd/sample-app
@@ -63,14 +65,16 @@ jobs:
         uses: actions/setup-node@v4
         with:
           node-version: '18'
+          cache: 'npm'
+          cache-dependency-path: phase2-cicd/sample-app/package.json
 
       - name: Install dependencies
         working-directory: phase2-cicd/sample-app
-        run: npm install
+        run: npm install --prefer-offline --no-audit
 
       - name: Run tests with coverage
         working-directory: phase2-cicd/sample-app
-        run: npm test -- --coverage
+        run: npm test -- --coverage --maxWorkers=2
         continue-on-error: true
 
       - name: Upload coverage reports
