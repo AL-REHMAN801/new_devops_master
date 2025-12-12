@@ -1,0 +1,121 @@
+---
+# Ansible Playbook: Setup Users
+# This playbook creates users and configures SSH access
+
+- name: Setup users on all nodes
+  hosts: all
+  become: yes
+  gather_facts: yes
+
+  vars:
+    users:
+      - username: devops
+        comment: "DevOps User"
+        groups: sudo,docker
+        shell: /bin/bash
+        ssh_key: "ssh-rsa AAAAB3NzaC1yc2EAAAADAQABAAABgQC... devops@example.com"
+      - username: developer
+        comment: "Developer User"
+        groups: docker
+        shell: /bin/bash
+        ssh_key: "ssh-rsa AAAAB3NzaC1yc2EAAAADAQABAAABgQC... developer@example.com"
+
+  tasks:
+    - name: Ensure required groups exist
+      group:
+        name: "{{ item }}"
+        state: present
+      loop:
+        - sudo
+        - docker
+
+    - name: Create users
+      user:
+        name: "{{ item.username }}"
+        comment: "{{ item.comment }}"
+        groups: "{{ item.groups }}"
+        shell: "{{ item.shell }}"
+        create_home: yes
+        state: present
+      loop: "{{ users }}"
+
+    - name: Set up authorized keys for users
+      authorized_key:
+        user: "{{ item.username }}"
+        key: "{{ item.ssh_key }}"
+        state: present
+      loop: "{{ users }}"
+      when: item.ssh_key is defined
+
+    - name: Configure sudoers for devops user
+      lineinfile:
+        path: /etc/sudoers.d/devops
+        line: "devops ALL=(ALL) NOPASSWD:ALL"
+        create: yes
+        mode: '0440'
+        validate: 'visudo -cf %s'
+
+    - name: Set password policy
+      lineinfile:
+        path: /etc/login.defs
+        regexp: "^PASS_MAX_DAYS"
+        line: "PASS_MAX_DAYS   90"
+        state: present
+
+    - name: Configure SSH settings
+      lineinfile:
+        path: /etc/ssh/sshd_config
+        regexp: "{{ item.regexp }}"
+        line: "{{ item.line }}"
+        state: present
+      loop:
+        - { regexp: '^#?PasswordAuthentication', line: 'PasswordAuthentication no' }
+        - { regexp: '^#?PubkeyAuthentication', line: 'PubkeyAuthentication yes' }
+        - { regexp: '^#?PermitRootLogin', line: 'PermitRootLogin no' }
+        - { regexp: '^#?X11Forwarding', line: 'X11Forwarding no' }
+      notify: Restart SSH
+
+    - name: Create .bashrc customizations
+      blockinfile:
+        path: "/home/{{ item.username }}/.bashrc"
+        block: |
+          # Custom aliases
+          alias ll='ls -alF'
+          alias la='ls -A'
+          alias l='ls -CF'
+          alias k='kubectl'
+          alias d='docker'
+          
+          # Custom prompt
+          export PS1='\[\033[01;32m\]\u@\h\[\033[00m\]:\[\033[01;34m\]\w\[\033[00m\]\$ '
+          
+          # History settings
+          export HISTSIZE=10000
+          export HISTFILESIZE=20000
+          export HISTCONTROL=ignoredups:erasedups
+        marker: "# {mark} ANSIBLE MANAGED BLOCK"
+        create: yes
+        owner: "{{ item.username }}"
+        group: "{{ item.username }}"
+        mode: '0644'
+      loop: "{{ users }}"
+
+    - name: Create user bin directory
+      file:
+        path: "/home/{{ item.username }}/bin"
+        state: directory
+        owner: "{{ item.username }}"
+        group: "{{ item.username }}"
+        mode: '0755'
+      loop: "{{ users }}"
+
+    - name: Display created users
+      debug:
+        msg: "User {{ item.username }} has been created and configured"
+      loop: "{{ users }}"
+
+  handlers:
+    - name: Restart SSH
+      systemd:
+        name: sshd
+        state: restarted
